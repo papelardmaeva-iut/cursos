@@ -4,11 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Générateur de Cours IA</title>
+    <!-- Bibliothèque pour lire les fichiers Word (.docx) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
     <style>
         :root {
-            --bg-color: #f0fdf4; /* Vert très clair */
+            --bg-color: #f0fdf4;
             --container-bg: #ffffff;
-            --primary: #059669; /* Vert Émeraude */
+            --primary: #059669;
             --primary-hover: #047857;
             --text-main: #1f2937;
             --text-muted: #4b5563;
@@ -95,7 +97,6 @@
             margin-top: 20px;
             display: none;
         }
-        /* Style pour simuler une vraie feuille de cours */
         #result {
             width: 100%;
             height: 400px;
@@ -135,143 +136,15 @@
 
     <div class="container">
         <h1>🟢 Architecte de Cours IA</h1>
-        <p>Importe ton lourd document de transcription brut (.txt). L'IA va analyser l'intégralité du texte pour construire un cours structuré, organisé et mis en forme pour tes révisions.</p>
+        <p>Importe ton document (Word ou texte). L'IA va analyser l'intégralité du contenu pour construire un cours structuré et mis en forme pour tes révisions.</p>
 
         <div class="form-group">
             <label for="apiKey">Clé API Groq (commence par gsk_) :</label>
             <input type="password" id="apiKey" placeholder="gsk_...">
         </div>
 
-        <div class="upload-area" id="dropZone" onclick="document.getElementById('textFile').click()">
-            <input type="file" id="textFile" accept=".txt, .md" style="display:none">
+        <div class="upload-area" id="dropZone" onclick="document.getElementById('docFile').click()">
+            <!-- Accepte désormais les .docx et .txt -->
+            <input type="file" id="docFile" accept=".docx, .txt" style="display:none">
             <div style="font-size: 28px; margin-bottom: 10px;">📄</div>
-            <strong id="fileName">Clique ici pour ajouter ton fichier de transcription (.txt)</strong>
-        </div>
-
-        <button id="generateBtn" disabled>🪄 Transformer en cours structuré</button>
-        
-        <div id="statusInfo"></div>
-        
-        <div class="output-container" id="outputContainer">
-            <label>Ton cours structuré :</label>
-            <div id="result" contenteditable="true"></div>
-            <button id="downloadBtn" class="secondary-btn" style="margin-top: 15px;">⬇️ Télécharger le cours (.txt)</button>
-        </div>
-    </div>
-
-    <script>
-        const textFileInput = document.getElementById('textFile');
-        const generateBtn = document.getElementById('generateBtn');
-        const apiKeyInput = document.getElementById('apiKey');
-        const resultArea = document.getElementById('result');
-        const statusInfo = document.getElementById('statusInfo');
-        const outputContainer = document.getElementById('outputContainer');
-        const downloadBtn = document.getElementById('downloadBtn');
-        const fileNameDisplay = document.getElementById('fileName');
-        
-        let fileContent = "";
-
-        textFileInput.addEventListener('change', (e) => {
-            const selectedFile = e.target.files[0];
-            if (selectedFile) {
-                fileNameDisplay.innerHTML = `${selectedFile.name} (Prêt à l'analyse)`;
-                
-                // Lecture du fichier texte
-                const reader = new FileReader();
-                reader.onload = function(event) {
-                    fileContent = event.target.result;
-                    generateBtn.disabled = false;
-                };
-                reader.readAsText(selectedFile);
-            }
-        });
-
-        generateBtn.addEventListener('click', async () => {
-            const rawKey = apiKeyInput.value;
-            const apiKey = rawKey.replace(/[^\x20-\x7E]/g, "").trim();
-
-            if (!apiKey.startsWith("gsk_")) { 
-                alert("Il te faut ta clé API Groq pour continuer."); 
-                return; 
-            }
-            if (!fileContent) return;
-
-            generateBtn.style.display = 'none';
-            statusInfo.style.display = 'block';
-            outputContainer.style.display = 'none';
-            resultArea.innerHTML = "";
-
-            try {
-                statusInfo.innerHTML = "🧠 L'IA lit et analyse l'intégralité du document (cela prend environ 10 à 20 secondes)...";
-                
-                // On utilise le modèle doté d'une énorme capacité de mémoire (jusqu'à 128k tokens)
-                const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                    method: 'POST',
-                    headers: { 
-                        'Authorization': `Bearer ${apiKey}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        model: 'llama-3.1-70b-versatile',
-                        messages: [
-                            { 
-                                role: 'system', 
-                                content: `Tu es un assistant universitaire expert en ingénierie pédagogique. Ton rôle est de transformer une retranscription brute (souvent très longue, sans ponctuation et avec des hésitations) en une véritable fiche de cours, parfaitement structurée pour un étudiant. 
-                                Consignes strictes : 
-                                1. Dégage un plan logique clair avec un Grand Titre, puis I, II, III (avec des sous-titres A, B, C si nécessaire). 
-                                2. Utilise des puces et des tirets pour lister les arguments. 
-                                3. Identifie et mets en avant les définitions, théories, et le vocabulaire technique (notamment en commerce, gestion ou marketing). 
-                                4. Si la langue de la transcription est l'espagnol, maintiens absolument la rigueur académique espagnole. 
-                                5. Supprime toutes les phrases inutiles, les digressions du professeur et les répétitions. Ne garde que le savoir utile, mais sois exhaustif sur le contenu académique.`
-                            },
-                            { 
-                                role: 'user', 
-                                content: `Voici la retranscription brute à transformer en cours structuré :\n\n${fileContent}`
-                            }
-                        ],
-                        temperature: 0.3
-                    })
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    const formattedText = data.choices[0].message.content;
-                    // Transformation basique du Markdown (gras) en HTML pour l'affichage
-                    let htmlText = formattedText
-                        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                        .replace(/\*(.*?)\*/g, '<em>$1</em>')
-                        .replace(/\n/g, '<br>');
-                    
-                    resultArea.innerHTML = htmlText;
-                    
-                    statusInfo.innerHTML = "✅ Cours généré avec succès ! Tu peux modifier le texte directement dans le cadre si tu le souhaites.";
-                    statusInfo.style.backgroundColor = "#d1fae5";
-                    statusInfo.style.color = "#065f46";
-                    outputContainer.style.display = 'block';
-                } else {
-                    throw new Error(data.error?.message || "Erreur de connexion à l'API.");
-                }
-
-            } catch (error) {
-                statusInfo.innerHTML = "❌ Erreur : " + error.message;
-                statusInfo.style.backgroundColor = "#fee2e2";
-                statusInfo.style.color = "#991b1b";
-                generateBtn.style.display = 'block';
-            }
-        });
-
-        downloadBtn.addEventListener('click', () => {
-            // On récupère le texte pur (sans les balises HTML) pour le fichier txt
-            const textToDownload = resultArea.innerText;
-            const blob = new Blob([textToDownload], { type: 'text/plain;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'Cours_Structure.txt';
-            a.click();
-            URL.revokeObjectURL(url);
-        });
-    </script>
-</body>
-</html>
+            <strong id="fileName">Clique ici pour ajouter ton document
