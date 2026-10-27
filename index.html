@@ -6,15 +6,21 @@
     <title>Générateur de Cours IA</title>
     <!-- Bibliothèque pour lire les fichiers Word (.docx) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <!-- Bibliothèque pour lire les fichiers PDF (.pdf) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script>
+        // Configuration indispensable pour que le lecteur PDF fonctionne en arrière-plan
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+    </script>
     <style>
         :root {
-            --bg-color: #f0fdf4;
+            --bg-color: #f0fdf5;
             --container-bg: #ffffff;
-            --primary: #059669;
+            --primary: #059679;
             --primary-hover: #047857;
             --text-main: #1f2937;
             --text-muted: #4b5563;
-            --border: #d1d5db;
+            --border: #d1d6db;
         }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -136,7 +142,7 @@
 
     <div class="container">
         <h1>🟢 Architecte de Cours IA</h1>
-        <p>Importe ton document (Word ou texte). L'IA va analyser l'intégralité du contenu pour construire un cours structuré et mis en forme pour tes révisions.</p>
+        <p>Importe ton document (Word, PDF ou texte). L'IA va analyser l'intégralité du contenu pour construire un cours structuré et mis en forme pour tes révisions.</p>
 
         <div class="form-group">
             <label for="apiKey">Clé API Groq (commence par gsk_) :</label>
@@ -144,7 +150,176 @@
         </div>
 
         <div class="upload-area" id="dropZone" onclick="document.getElementById('docFile').click()">
-            <!-- Accepte désormais les .docx et .txt -->
-            <input type="file" id="docFile" accept=".docx, .txt" style="display:none">
+            <!-- Accepte désormais les .docx, .pdf et .txt -->
+            <input type="file" id="docFile" accept=".docx, .pdf, .txt" style="display:none">
             <div style="font-size: 28px; margin-bottom: 10px;">📄</div>
-            <strong id="fileName">Clique ici pour ajouter ton document
+            <strong id="fileName">Clique ici pour ajouter ton document (Word, PDF ou .txt)</strong>
+        </div>
+
+        <button id="generateBtn" disabled>🪄 Transformer en cours structuré</button>
+        
+        <div id="statusInfo"></div>
+        
+        <div class="output-container" id="outputContainer">
+            <label>Ton cours structuré :</label>
+            <div id="result" contenteditable="true"></div>
+            <button id="downloadBtn" class="secondary-btn" style="margin-top: 15px;">⬇️ Télécharger au format Word (.doc)</button>
+        </div>
+    </div>
+
+    <script>
+        const docFileInput = document.getElementById('docFile');
+        const generateBtn = document.getElementById('generateBtn');
+        const apiKeyInput = document.getElementById('apiKey');
+        const resultArea = document.getElementById('result');
+        const statusInfo = document.getElementById('statusInfo');
+        const outputContainer = document.getElementById('outputContainer');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const fileNameDisplay = document.getElementById('fileName');
+        
+        let fileContent = "";
+
+        docFileInput.addEventListener('change', async (e) => {
+            const selectedFile = e.target.files[0];
+            if (!selectedFile) return;
+
+            const fileName = selectedFile.name.toLowerCase();
+            fileNameDisplay.innerHTML = `${selectedFile.name} (Lecture en cours...)`;
+            generateBtn.disabled = true;
+
+            try {
+                // Lecture pour fichier Word (.docx)
+                if (fileName.endsWith('.docx')) {
+                    const arrayBuffer = await selectedFile.arrayBuffer();
+                    const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
+                    fileContent = result.value;
+                } 
+                // Lecture pour fichier PDF (.pdf)
+                else if (fileName.endsWith('.pdf')) {
+                    const arrayBuffer = await selectedFile.arrayBuffer();
+                    const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+                    let extractedText = "";
+                    
+                    for (let i = 1; i <= pdf.numPages; i++) {
+                        const page = await pdf.getPage(i);
+                        const textContent = await page.getTextContent();
+                        const pageText = textContent.items.map(item => item.str).join(' ');
+                        extractedText += pageText + "\n";
+                    }
+                    fileContent = extractedText;
+                }
+                // Lecture pour fichier texte normal (.txt)
+                else {
+                    fileContent = await selectedFile.text();
+                }
+
+                fileNameDisplay.innerHTML = `${selectedFile.name} (Prêt à l'analyse)`;
+                generateBtn.disabled = false;
+
+            } catch (error) {
+                alert("Erreur lors de la lecture du fichier : " + error.message);
+                fileNameDisplay.innerHTML = "Clique ici pour ajouter ton document (Word, PDF ou .txt)";
+            }
+        });
+
+        generateBtn.addEventListener('click', async () => {
+            const rawKey = apiKeyInput.value;
+            const apiKey = rawKey.replace(/[^\x20-\x7E]/g, "").trim();
+
+            if (!apiKey.startsWith("gsk_")) { 
+                alert("Il te faut ta clé API Groq pour continuer."); 
+                return; 
+            }
+            if (!fileContent) {
+                alert("Le fichier est vide ou n'a pas pu être lu.");
+                return;
+            }
+
+            generateBtn.style.display = 'none';
+            statusInfo.style.display = 'block';
+            outputContainer.style.display = 'none';
+            resultArea.innerHTML = "";
+
+            try {
+                statusInfo.innerHTML = "🧠 L'IA lit et analyse l'intégralité du document (cela prend environ 10 à 20 secondes)...";
+                
+                const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { 
+                        'Authorization': `Bearer ${apiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        model: 'llama-3.1-70b-versatile',
+                        messages: [
+                            { 
+                                role: 'system', 
+                                content: `Tu es un assistant universitaire expert en ingénierie pédagogique. Ton rôle est de transformer une retranscription brute en une véritable fiche de cours, parfaitement structurée pour un étudiant. 
+                                Consignes strictes : 
+                                1. Dégage un plan logique clair avec un Grand Titre, puis I, II, III (avec des sous-titres A, B, C si nécessaire). 
+                                2. Utilise des puces et des tirets pour lister les arguments. 
+                                3. Identifie et mets en avant (en gras) les définitions, théories, et le vocabulaire technique. 
+                                4. Maintiens absolument la rigueur académique dans la langue d'origine du texte. 
+                                5. Supprime toutes les phrases inutiles, les digressions et les répétitions. Ne garde que le savoir utile, mais sois exhaustif sur le contenu académique.`
+                            },
+                            { 
+                                role: 'user', 
+                                content: `Voici le document brut à transformer en cours structuré :\n\n${fileContent}`
+                            }
+                        ],
+                        temperature: 0.3
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    const formattedText = data.choices[0].message.content;
+                    
+                    // Transformation du Markdown en HTML
+                    let htmlText = formattedText
+                        .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+                        .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+                        .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+                        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                        .replace(/\n/g, '<br>');
+                    
+                    resultArea.innerHTML = htmlText;
+                    
+                    statusInfo.innerHTML = "✅ Cours généré avec succès ! Tu peux modifier le texte directement dans le cadre avant de le télécharger.";
+                    statusInfo.style.backgroundColor = "#d1fae5";
+                    statusInfo.style.color = "#065f46";
+                    outputContainer.style.display = 'block';
+                } else {
+                    throw new Error(data.error?.message || "Erreur de connexion à l'API.");
+                }
+
+            } catch (error) {
+                statusInfo.innerHTML = "❌ Erreur : " + error.message;
+                statusInfo.style.backgroundColor = "#fee2e2";
+                statusInfo.style.color = "#991b1b";
+                generateBtn.style.display = 'block';
+            }
+        });
+
+        // Téléchargement au format Word
+        downloadBtn.addEventListener('click', () => {
+            const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Cours Structuré</title></head><body>";
+            const footer = "</body></html>";
+            const htmlContent = header + resultArea.innerHTML + footer;
+            
+            const blob = new Blob(['\ufeff', htmlContent], {
+                type: 'application/msword'
+            });
+            
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'Cours_Structure_IA.doc';
+            a.click();
+            URL.revokeObjectURL(url);
+        });
+    </script>
+</body>
+</html>
